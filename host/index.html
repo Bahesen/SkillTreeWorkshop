@@ -157,7 +157,7 @@
 
   function chainRow(start, end, small) {
     const row = el("div", "chain" + (small ? " small" : ""));
-    row.append(el("span", "", start), el("span", "arrow", "→ … →"), el("span", "", end));
+    row.append(el("span", "", start), el("span", "arrow", "→"), el("span", "", end));
     return row;
   }
 

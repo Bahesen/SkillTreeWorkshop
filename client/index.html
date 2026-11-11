@@ -66,7 +66,7 @@
   <section class="view" id="v-collect">
     <form id="form">
       <h1>Eine Welt erschaffen</h1>
-      <p class="sub">Schreibe einen Satz über deine Figur. Zum Beispiel: „Meine Figur kann besonders gut …“ oder „Meine Figur ist besonders interessiert an …“</p>
+      <p class="sub">Schreibe einen Satz über deine Figur. Zum Beispiel: „Meine Figur kann besonders gut …“ oder „Meine Figur ist besonders interessiert an …“ Deine Figur braucht keinen Namen. Werde nicht zu detailliert.</p>
       <textarea id="text" maxlength="500" placeholder="Meine Figur …" required></textarea>
       <button id="send" type="submit">Absenden</button>
       <div class="status" id="status"></div>
@@ -90,7 +90,7 @@
     <p class="sub">Schreibe eine kurze Synopsis auf Basis der Assoziation. Die Geschichte muss kein Ende haben, aber eine Ausgangslage liefern.</p>
     <div class="label">Anfang</div>
     <div id="synStart" class="fixed"></div>
-    <div class="arrow">↓<br>…<br>↓</div>
+    <div class="arrow">↓</div>
     <div class="label" style="margin-top:0">Ende</div>
     <div id="synEnd" class="fixed"></div>
     <div class="label">Deine Synopsis</div>
@@ -114,7 +114,7 @@
   <!-- Letzte Runde -->
   <section class="view" id="v-final">
     <h1>Vom Ursprung zum Ende</h1>
-    <p class="sub">Hier ist dein Ergebnis. Lies es dir genau durch und schreibe in das Textfeld, ob deine Figur in dieser Welt funktioniert oder was du ändern würdest, damit sie funktioniert.</p>
+    <p class="sub">Hier ist dein Ergebnis. Lies es dir genau durch und schreibe in das Textfeld, wie du nun mit der Handlung oder dem Gameplay weiter vorgehen würdest.</p>
     <div class="label">Dein Satz</div>
     <div id="finOrigin" class="fixed"></div>
     <div class="label">Assoziationskette</div>
@@ -123,8 +123,8 @@
     <div id="finSynopsis" class="fixed soft"></div>
     <div class="label">Gameplay-Feature</div>
     <div id="finFeature" class="fixed soft"></div>
-    <div class="label">Funktioniert deine Figur in dieser Welt?</div>
-    <textarea id="finText" maxlength="2000" placeholder="Was passt, was würdest du ändern?"></textarea>
+    <div class="label">Wie geht es weiter?</div>
+    <textarea id="finText" maxlength="2000" placeholder="Mit der Handlung oder dem Gameplay würde ich …"></textarea>
     <button id="finSend" type="button">Absenden</button>
     <div class="status" id="finStatus"></div>
   </section>
