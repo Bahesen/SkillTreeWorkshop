@@ -8,7 +8,7 @@
   * { box-sizing: border-box; }
   body { margin: 0; font-family: system-ui, sans-serif; background: #15110e; color: #f4ece3; }
   header {
-    position: sticky; top: 0; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
     padding: 16px 24px; background: #15110e; border-bottom: 1px solid #3a2f27;
   }
   h1 { font-size: 1.4rem; margin: 0; flex: 1; }
@@ -18,13 +18,28 @@
     padding: 8px 16px; font: inherit; border-radius: 999px; cursor: pointer;
     background: transparent; color: #f4ece3; border: 1px solid #3a2f27;
   }
+  button.primary { background: #ff8a3d; color: #1a0f07; border-color: #ff8a3d; font-weight: 600; }
+  button:disabled { opacity: .5; }
   #list { list-style: none; margin: 0; padding: 24px; display: grid; gap: 14px; }
   #list li {
     background: #201a16; border: 1px solid #3a2f27; border-radius: 14px; padding: 16px 20px;
-    font-size: 1.3rem; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word;
     animation: in .4s ease;
   }
-  #list li time { display: block; margin-top: 6px; font-size: .8rem; color: #a99c8f; }
+  .sender { font-size: .85rem; font-weight: 600; color: #ffd27a; margin-bottom: 4px; }
+  .sender time { font-weight: 400; color: #a99c8f; margin-left: 8px; }
+  .text { font-size: 1.3rem; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+  .replies { margin: 10px 0 0; padding: 0; list-style: none; }
+  .replies li {
+    background: transparent !important; border: none !important; padding: 4px 0 4px 12px !important;
+    border-left: 3px solid #ff8a3d !important; border-radius: 0 !important; margin-top: 6px;
+    font-size: .95rem; color: #d8cbbd; animation: none !important;
+  }
+  .reply { display: flex; gap: 8px; margin-top: 12px; }
+  .reply input {
+    flex: 1; padding: 8px 12px; font: inherit; border-radius: 999px;
+    border: 1px solid #3a2f27; background: #15110e; color: inherit;
+  }
+  .reply input:focus { outline: 2px solid #ff8a3d; border-color: transparent; }
   #empty { padding: 24px; color: #a99c8f; }
   @keyframes in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 </style>
@@ -53,20 +68,79 @@
   let clearedAt = 0;
   try { clearedAt = Number(localStorage.getItem(CLEAR_KEY)) || 0; } catch (e) {}
 
+  const timeOf = (sec) => new Date(sec * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+
   function updateCount() {
     count.textContent = list.children.length;
     empty.style.display = list.children.length ? "none" : "block";
+  }
+
+  async function sendReply(clientId, text) {
+    const res = await fetch("https://ntfy.sh/" + TOPIC + "-c-" + clientId, { method: "POST", body: text });
+    if (!res.ok) throw new Error(res.status);
   }
 
   function addEntry(msg) {
     if (seen.has(msg.id) || msg.time <= clearedAt) return;
     seen.add(msg.id);
 
+    // Nachricht auslesen (ältere Clients schicken nur reinen Text)
+    let data;
+    try { data = JSON.parse(msg.message); } catch (e) {}
+    if (!data || typeof data.text !== "string") data = { from: null, name: "Unbekannt", text: msg.message };
+
     const li = document.createElement("li");
-    li.textContent = msg.message;
+
+    const sender = document.createElement("div");
+    sender.className = "sender";
+    sender.textContent = data.name || "Unbekannt";
     const t = document.createElement("time");
-    t.textContent = new Date(msg.time * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-    li.appendChild(t);
+    t.textContent = timeOf(msg.time);
+    sender.appendChild(t);
+
+    const text = document.createElement("div");
+    text.className = "text";
+    text.textContent = data.text;
+
+    li.append(sender, text);
+
+    // Antwortfeld nur, wenn der Client eine Kennung mitgeschickt hat
+    if (data.from) {
+      const replies = document.createElement("ul");
+      replies.className = "replies";
+
+      const form = document.createElement("form");
+      form.className = "reply";
+      const input = document.createElement("input");
+      input.placeholder = "Antwort an " + (data.name || "Client") + " …";
+      input.maxLength = 500;
+      const btn = document.createElement("button");
+      btn.className = "primary";
+      btn.type = "submit";
+      btn.textContent = "Senden";
+      form.append(input, btn);
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const value = input.value.trim();
+        if (!value) return;
+        btn.disabled = true;
+        try {
+          await sendReply(data.from, value);
+          const r = document.createElement("li");
+          r.textContent = "Du: " + value;
+          replies.appendChild(r);
+          input.value = "";
+        } catch (err) {
+          btn.textContent = "Fehler – nochmal";
+          setTimeout(() => (btn.textContent = "Senden"), 2000);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      li.append(replies, form);
+    }
 
     list.prepend(li); // neueste oben
     updateCount();

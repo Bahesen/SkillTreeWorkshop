@@ -7,11 +7,14 @@
 <style>
   * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    margin: 0; min-height: 100vh; display: flex; justify-content: center;
     font-family: system-ui, sans-serif; background: #15110e; color: #f4ece3; padding: 20px;
   }
-  form { width: 100%; max-width: 480px; }
+  main { width: 100%; max-width: 480px; }
+  #me { font-size: .9rem; color: #a99c8f; margin-bottom: 18px; }
+  #me b { color: #ffd27a; }
   h1 { font-size: 1.6rem; margin: 0 0 16px; }
+  h2 { font-size: 1.1rem; margin: 28px 0 10px; color: #a99c8f; }
   textarea {
     width: 100%; min-height: 120px; padding: 14px; font: inherit; font-size: 1.1rem;
     border-radius: 12px; border: 1px solid #3a2f27; background: #201a16; color: inherit; resize: vertical;
@@ -25,21 +28,52 @@
   #status { margin-top: 12px; min-height: 1.5em; text-align: center; color: #a99c8f; }
   #status.ok { color: #9fd8a8; }
   #status.err { color: #ff7a7a; }
+  #inbox { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  #inbox li {
+    background: #2b1f17; border: 1px solid #5a3e2a; border-radius: 12px; padding: 12px 16px;
+    font-size: 1.05rem; white-space: pre-wrap; word-wrap: break-word; animation: in .4s ease;
+  }
+  #inbox li time { display: block; margin-top: 4px; font-size: .8rem; color: #a99c8f; }
+  #noMsg { color: #a99c8f; font-size: .95rem; }
+  @keyframes in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
 <body>
-<form id="form">
-  <h1>Dein Text</h1>
-  <textarea id="text" maxlength="500" placeholder="Schreib hier …" required></textarea>
-  <button id="send" type="submit">Absenden</button>
-  <div id="status"></div>
-</form>
+<main>
+  <div id="me">Du bist: <b id="myName"></b></div>
+
+  <form id="form">
+    <h1>Dein Text</h1>
+    <textarea id="text" maxlength="500" placeholder="Schreib hier …" required></textarea>
+    <button id="send" type="submit">Absenden</button>
+    <div id="status"></div>
+  </form>
+
+  <h2>Nachrichten vom Host</h2>
+  <div id="noMsg">Noch keine Nachrichten.</div>
+  <ul id="inbox"></ul>
+</main>
 
 <script>
   // Muss auf Host- und Client-Seite gleich sein
   const TOPIC = "workshop-78921c3265c600ea";
-  const URL_PUBLISH = "https://ntfy.sh/" + TOPIC;
+  const ANIMALS = ["Fuchs","Eule","Dachs","Otter","Igel","Luchs","Rabe","Hase","Wal","Biber","Falke","Kröte","Elch","Robbe","Wolf","Krake"];
 
+  // Eigene Client-Kennung: bleibt auf diesem Gerät gespeichert
+  let me = null;
+  try { me = JSON.parse(localStorage.getItem("client-identity")); } catch (e) {}
+  if (!me || !me.id) {
+    const rand = new Uint8Array(6);
+    crypto.getRandomValues(rand);
+    me = {
+      id: Array.from(rand, b => b.toString(16).padStart(2, "0")).join(""),
+      name: ANIMALS[rand[0] % ANIMALS.length] + " " + (10 + (rand[1] % 90))
+    };
+    try { localStorage.setItem("client-identity", JSON.stringify(me)); } catch (e) {}
+  }
+  document.getElementById("myName").textContent = me.name;
+
+  // ---- Senden an den Host ----
   const form = document.getElementById("form");
   const text = document.getElementById("text");
   const send = document.getElementById("send");
@@ -55,7 +89,8 @@
     status.textContent = "Wird gesendet …";
 
     try {
-      const res = await fetch(URL_PUBLISH, { method: "POST", body: value });
+      const payload = JSON.stringify({ from: me.id, name: me.name, text: value });
+      const res = await fetch("https://ntfy.sh/" + TOPIC, { method: "POST", body: payload });
       if (!res.ok) throw new Error(res.status);
       text.value = "";
       status.className = "ok";
@@ -67,6 +102,30 @@
       send.disabled = false;
     }
   });
+
+  // ---- Nachrichten vom Host empfangen (eigener Kanal pro Client) ----
+  const inbox = document.getElementById("inbox");
+  const noMsg = document.getElementById("noMsg");
+  const seen = new Set();
+
+  const source = new EventSource("https://ntfy.sh/" + TOPIC + "-c-" + me.id + "/sse?since=all");
+  source.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.event !== "message" || seen.has(msg.id)) return;
+      seen.add(msg.id);
+
+      const li = document.createElement("li");
+      li.textContent = msg.message;
+      const t = document.createElement("time");
+      t.textContent = new Date(msg.time * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+      li.appendChild(t);
+      inbox.prepend(li);
+      noMsg.style.display = "none";
+
+      try { navigator.vibrate && navigator.vibrate(150); } catch (err) {}
+    } catch (err) {}
+  };
 </script>
 </body>
 </html>
