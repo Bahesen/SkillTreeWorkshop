@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: system-ui, sans-serif; background: #15110e; color: #f4ece3; padding: 20px;
+  }
+  form { width: 100%; max-width: 480px; }
+  h1 { font-size: 1.6rem; margin: 0 0 16px; }
+  textarea {
+    width: 100%; min-height: 120px; padding: 14px; font: inherit; font-size: 1.1rem;
+    border-radius: 12px; border: 1px solid #3a2f27; background: #201a16; color: inherit; resize: vertical;
+  }
+  textarea:focus { outline: 2px solid #ff8a3d; border-color: transparent; }
+  button {
+    width: 100%; margin-top: 12px; padding: 14px; font: inherit; font-size: 1.1rem; font-weight: 600;
+    border: none; border-radius: 999px; background: #ff8a3d; color: #1a0f07; cursor: pointer;
+  }
+  button:disabled { opacity: .5; }
+  #status { margin-top: 12px; min-height: 1.5em; text-align: center; color: #a99c8f; }
+  #status.ok { color: #9fd8a8; }
+  #status.err { color: #ff7a7a; }
+</style>
+</head>
+<body>
+<form id="form">
+  <h1>Dein Text</h1>
+  <textarea id="text" maxlength="500" placeholder="Schreib hier …" required></textarea>
+  <button id="send" type="submit">Absenden</button>
+  <div id="status"></div>
+</form>
+
+<script>
+  // Muss auf Host- und Client-Seite gleich sein
+  const TOPIC = "workshop-78921c3265c600ea";
+  const URL_PUBLISH = "https://ntfy.sh/" + TOPIC;
+
+  const form = document.getElementById("form");
+  const text = document.getElementById("text");
+  const send = document.getElementById("send");
+  const status = document.getElementById("status");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const value = text.value.trim();
+    if (!value) return;
+
+    send.disabled = true;
+    status.className = "";
+    status.textContent = "Wird gesendet …";
+
+    try {
+      const res = await fetch(URL_PUBLISH, { method: "POST", body: value });
+      if (!res.ok) throw new Error(res.status);
+      text.value = "";
+      status.className = "ok";
+      status.textContent = "Gesendet ✓";
+    } catch (err) {
+      status.className = "err";
+      status.textContent = "Senden fehlgeschlagen – bitte nochmal versuchen.";
+    } finally {
+      send.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
