@@ -76,7 +76,6 @@
 <header>
   <h1><span id="countLabel">Eingänge:</span> <span id="count">0</span></h1>
   <span id="state">Verbinde …</span>
-  <button id="soundTest" type="button">Ton testen</button>
   <button id="restart" type="button">Neu starten</button>
   <button id="action" class="primary" type="button">Aufdecken</button>
 </header>
@@ -264,17 +263,19 @@
     try { fallbackAudio.currentTime = 0; const p = fallbackAudio.play(); if (p) p.catch(() => {}); } catch (e) {}
   }
 
-  $("soundTest").addEventListener("click", () => {
-    unlockAudio();
-    // kurz warten, falls der Ton gerade erst geladen wird
-    setTimeout(playDone, soundBuffer ? 0 : 300);
-  });
-
   let soundPlayedFor = null;
   let rebuilding = false;
 
+  // Aufdecken geht erst, wenn mindestens eine Einsendung da ist
+  let busy = false;
+  function updateAction() {
+    const nothingToReveal = COVERED[phase] && phase !== "final" && list.children.length === 0;
+    actionBtn.disabled = busy || phase === "finished" || nothingToReveal;
+  }
+
   function updateCounts() {
     $("empty").style.display = list.children.length ? "none" : "block";
+    updateAction();
 
     // Ab Runde 2: Abgaben im Verhältnis zu den Teilnehmenden aus Runde 1
     if (COVERED[phase] && phase !== "collect") {
@@ -300,8 +301,8 @@
     document.body.classList.toggle("covered", !!COVERED[phase]);
     $("heading").textContent = HEADING[STAGE[phase]];
     $("hint").style.display = phase === "finished" ? "block" : "none";
-    actionBtn.disabled = phase === "finished";
     actionBtn.textContent = BUTTON[phase];
+    updateAction();
   }
 
   function applyCtrl(data) {
@@ -401,7 +402,9 @@
 
   // ---- Buttons ----
   actionBtn.addEventListener("click", async () => {
-    actionBtn.disabled = true;
+    if (actionBtn.disabled) return;
+    busy = true;
+    updateAction();
     try {
       if (!session) session = String(Date.now());
 
@@ -450,7 +453,8 @@
       actionBtn.textContent = "Fehler – nochmal versuchen";
       setTimeout(renderPhase, 2000);
     } finally {
-      actionBtn.disabled = phase === "finished";
+      busy = false;
+      updateAction();
     }
   });
 
