@@ -12,6 +12,7 @@
     padding: 16px 24px; background: #15110e; border-bottom: 1px solid #3a2f27;
   }
   h1 { font-size: 1.4rem; margin: 0; flex: 1; }
+  h2 { font-size: 1.1rem; margin: 24px 24px 0; color: #a99c8f; font-weight: 600; }
   #state { font-size: .9rem; color: #a99c8f; }
   #state.live { color: #9fd8a8; }
   button {
@@ -19,11 +20,11 @@
     background: transparent; color: #f4ece3; border: 1px solid #3a2f27;
   }
   button.primary { background: #ff8a3d; color: #1a0f07; border-color: #ff8a3d; font-weight: 600; }
-  button:disabled { opacity: .5; }
-  #reveal { padding: 10px 22px; font-size: 1.05rem; }
+  button:disabled { opacity: .5; cursor: default; }
+  #action { padding: 10px 22px; font-size: 1.05rem; }
 
-  #list { list-style: none; margin: 0; padding: 24px; display: grid; gap: 14px; }
-  #list > li {
+  ul.cards { list-style: none; margin: 0; padding: 16px 24px 24px; display: grid; gap: 14px; }
+  ul.cards > li {
     background: #201a16; border: 1px solid #3a2f27; border-radius: 14px; padding: 16px 20px;
     animation: in .4s ease;
   }
@@ -31,28 +32,23 @@
   .text { font-size: 1.3rem; line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
   .cover { display: none; font-size: 1.3rem; color: #a99c8f; letter-spacing: .05em; }
 
-  /* Verdeckter Zustand */
+  /* Verdeckter Zustand (Phase "collect") */
   body.covered #list > li {
     background: repeating-linear-gradient(45deg, #2b1f17, #2b1f17 12px, #261b14 12px, #261b14 24px);
     border-color: #5a3e2a;
   }
-  body.covered .text,
-  body.covered .replies,
-  body.covered .reply { display: none; }
-  body.covered .cover { display: block; }
+  body.covered #list .text { display: none; }
+  body.covered #list .cover { display: block; }
 
-  .replies { margin: 10px 0 0; padding: 0; list-style: none; }
-  .replies li {
-    padding: 4px 0 4px 12px; border-left: 3px solid #ff8a3d; margin-top: 6px;
-    font-size: .95rem; color: #d8cbbd;
-  }
-  .reply { display: flex; gap: 8px; margin-top: 12px; }
-  .reply input {
-    flex: 1; padding: 8px 12px; font: inherit; border-radius: 999px;
-    border: 1px solid #3a2f27; background: #15110e; color: inherit;
-  }
-  .reply input:focus { outline: 2px solid #ff8a3d; border-color: transparent; }
-  #empty { padding: 24px; color: #a99c8f; }
+  /* Assoziationsketten */
+  #chainSec { display: none; }
+  body.chain #chainSec { display: block; }
+  .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 1.2rem; line-height: 1.4; }
+  .chain .start { color: #ffd27a; font-weight: 600; }
+  .chain .arrow { color: #ff8a3d; }
+  .chain span { white-space: pre-wrap; word-wrap: break-word; }
+
+  .empty { padding: 16px 24px; color: #a99c8f; }
   @keyframes in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
@@ -60,135 +56,265 @@
 <header>
   <h1>Eingänge: <span id="count">0</span></h1>
   <span id="state">Verbinde …</span>
-  <button id="clear" type="button">Liste leeren</button>
-  <button id="reveal" class="primary" type="button">Aufdecken</button>
+  <button id="newRound" type="button">Neue Runde</button>
+  <button id="action" class="primary" type="button">Aufdecken</button>
 </header>
-<div id="empty">Noch keine Texte.</div>
-<ul id="list"></ul>
+
+<section id="chainSec">
+  <h2>Assoziationsketten <span id="chainCount"></span></h2>
+  <div class="empty" id="chainEmpty">Noch keine Ketten.</div>
+  <ul class="cards" id="chains"></ul>
+</section>
+
+<h2>Nachrichten</h2>
+<div class="empty" id="empty">Noch keine Texte.</div>
+<ul class="cards" id="list"></ul>
 
 <script>
   // Muss auf Host- und Client-Seite gleich sein
   const TOPIC = "workshop-78921c3265c600ea";
-  const CLEAR_KEY = "host-cleared-at-" + TOPIC;
+  const NTFY = "https://ntfy.sh/";
 
-  const list = document.getElementById("list");
-  const count = document.getElementById("count");
-  const empty = document.getElementById("empty");
-  const state = document.getElementById("state");
-  const revealBtn = document.getElementById("reveal");
-  const seen = new Set();
+  const $ = (id) => document.getElementById(id);
+  const list = $("list"), chains = $("chains"), state = $("state"), actionBtn = $("action");
+
+  // ---- Zustand ----
+  let phase = "collect";   // collect | closed | chain
+  let session = null;      // ID der aktuellen Runde
+  let sessionStart = 0;    // Unix-Sekunden: ältere Nachrichten werden ignoriert
+  const raw = [];          // alle empfangenen Nachrichten (auch alter Runden)
+  const rawIds = new Set();
+  let shown = new Set();   // in der aktuellen Ansicht gerenderte Nachrichten
   let counter = 0;
-
-  // Zeitpunkt, ab dem Texte angezeigt werden (Unix-Sekunden)
-  let clearedAt = 0;
-  try { clearedAt = Number(localStorage.getItem(CLEAR_KEY)) || 0; } catch (e) {}
 
   const timeOf = (sec) => new Date(sec * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 
-  function updateCount() {
-    count.textContent = list.children.length;
-    empty.style.display = list.children.length ? "none" : "block";
-  }
-
-  async function sendReply(clientId, text) {
-    const res = await fetch("https://ntfy.sh/" + TOPIC + "-c-" + clientId, { method: "POST", body: text });
-    if (!res.ok) throw new Error(res.status);
-  }
-
-  function addEntry(msg) {
-    if (seen.has(msg.id) || msg.time <= clearedAt) return;
-    seen.add(msg.id);
-    counter++;
-
-    // Nachricht auslesen (ältere Clients schicken nur reinen Text)
+  function parse(msg) {
     let data;
     try { data = JSON.parse(msg.message); } catch (e) {}
-    if (!data || typeof data.text !== "string") data = { from: null, text: msg.message };
+    if (!data || typeof data !== "object") data = { type: "text", from: null, text: msg.message };
+    if (!data.type) data.type = "text";
+    return data;
+  }
 
+  // ---- Darstellung ----
+  function textEntries() {
+    return raw.filter(m => m.time >= sessionStart).map(m => ({ msg: m, data: parse(m) }))
+      .filter(e => e.data.type === "text" && typeof e.data.text === "string");
+  }
+
+  function addText(msg, data) {
+    counter++;
     const li = document.createElement("li");
-
     const meta = document.createElement("div");
     meta.className = "meta";
     meta.textContent = "#" + counter + " · " + timeOf(msg.time);
-
     const cover = document.createElement("div");
     cover.className = "cover";
     cover.textContent = "✉ Neue Nachricht";
-
     const text = document.createElement("div");
     text.className = "text";
     text.textContent = data.text;
-
     li.append(meta, cover, text);
-
-    // Antwortfeld nur, wenn der Client eine Kennung mitgeschickt hat
-    if (data.from) {
-      const replies = document.createElement("ul");
-      replies.className = "replies";
-
-      const form = document.createElement("form");
-      form.className = "reply";
-      const input = document.createElement("input");
-      input.placeholder = "Antwort …";
-      input.maxLength = 500;
-      const btn = document.createElement("button");
-      btn.className = "primary";
-      btn.type = "submit";
-      btn.textContent = "Senden";
-      form.append(input, btn);
-
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const value = input.value.trim();
-        if (!value) return;
-        btn.disabled = true;
-        try {
-          await sendReply(data.from, value);
-          const r = document.createElement("li");
-          r.textContent = "Du: " + value;
-          replies.appendChild(r);
-          input.value = "";
-        } catch (err) {
-          btn.textContent = "Fehler – nochmal";
-          setTimeout(() => (btn.textContent = "Senden"), 2000);
-        } finally {
-          btn.disabled = false;
-        }
-      });
-
-      li.append(replies, form);
-    }
-
     list.prepend(li); // neueste oben
-    updateCount();
   }
 
-  // Aufdecken / Verdecken
-  revealBtn.addEventListener("click", () => {
-    const covered = document.body.classList.toggle("covered");
-    revealBtn.textContent = covered ? "Aufdecken" : "Verdecken";
+  function addChain(msg, data) {
+    const li = document.createElement("li");
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = timeOf(msg.time);
+    const row = document.createElement("div");
+    row.className = "chain";
+    const start = document.createElement("span");
+    start.className = "start";
+    start.textContent = data.start;
+    row.appendChild(start);
+    (data.items || []).forEach(item => {
+      const arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = "→";
+      const s = document.createElement("span");
+      s.textContent = item;
+      row.append(arrow, s);
+    });
+    li.append(meta, row);
+    chains.prepend(li);
+  }
+
+  function consider(msg) {
+    if (shown.has(msg.id) || msg.time < sessionStart) return;
+    const data = parse(msg);
+    if (data.type === "text" && typeof data.text === "string") addText(msg, data);
+    else if (data.type === "chain" && data.session === session && data.session) addChain(msg, data);
+    else return;
+    shown.add(msg.id);
+    updateCounts();
+  }
+
+  function rebuild() {
+    list.innerHTML = "";
+    chains.innerHTML = "";
+    shown = new Set();
+    counter = 0;
+    raw.slice().sort((a, b) => a.time - b.time).forEach(consider);
+    updateCounts();
+  }
+
+  function participants() {
+    return new Set(textEntries().map(e => e.data.from).filter(Boolean)).size;
+  }
+
+  function updateCounts() {
+    $("count").textContent = list.children.length;
+    $("empty").style.display = list.children.length ? "none" : "block";
+    $("chainEmpty").style.display = chains.children.length ? "none" : "block";
+    $("chainCount").textContent = "(" + chains.children.length + " / " + participants() + ")";
+  }
+
+  function renderPhase() {
+    document.body.classList.toggle("covered", phase === "collect");
+    document.body.classList.toggle("chain", phase === "chain");
+    actionBtn.disabled = phase === "chain";
+    actionBtn.textContent =
+      phase === "collect" ? "Aufdecken" :
+      phase === "closed" ? "Assoziationskette" : "Assoziationskette läuft";
+  }
+
+  // ---- Senden ----
+  async function post(topic, obj) {
+    const res = await fetch(NTFY + topic, { method: "POST", body: JSON.stringify(obj) });
+    if (!res.ok) throw new Error(res.status);
+  }
+
+  async function setPhase(newPhase, newSession, newStart) {
+    await post(TOPIC + "-ctrl", { phase: newPhase, session: newSession, start: newStart });
+    applyCtrl({ phase: newPhase, session: newSession, start: newStart });
+  }
+
+  function applyCtrl(data) {
+    const sessionChanged = data.session !== session || data.start !== sessionStart;
+    phase = data.phase;
+    session = data.session;
+    sessionStart = data.start || 0;
+    renderPhase();
+    if (sessionChanged) rebuild();
+  }
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // Jeder Client bekommt eine fremde Nachricht, keine Nachricht geht doppelt raus.
+  // Ausnahme: nur eine Nachricht insgesamt -> zurück an den Absender.
+  function makeAssignments() {
+    const msgs = textEntries().map(e => e.data);
+    const clients = shuffle([...new Set(msgs.map(m => m.from).filter(Boolean))]);
+    if (!clients.length) return {};
+    if (msgs.length === 1) return { [clients[0]]: msgs[0].text };
+
+    const pool = shuffle(msgs.map((_, i) => i));
+    const owner = new Array(msgs.length).fill(null); // Nachricht -> Client
+    const matchOf = {};                               // Client -> Nachricht
+
+    // Zufällige Zuordnung mit Tauschen (bipartites Matching)
+    function tryClient(c, visited) {
+      for (const i of pool) {
+        if (msgs[i].from === c || visited.has(i)) continue;
+        visited.add(i);
+        if (owner[i] === null || tryClient(owner[i], visited)) {
+          owner[i] = c;
+          matchOf[c] = i;
+          return true;
+        }
+      }
+      return false;
+    }
+    clients.forEach(c => tryClient(c, new Set()));
+
+    // Notfall (z. B. nur eine Person hat mehrere Nachrichten geschickt): irgendeine freie Nachricht
+    clients.forEach(c => {
+      if (matchOf[c] !== undefined) return;
+      let i = pool.find(i => owner[i] === null);
+      if (i === undefined) i = pool[0];
+      if (owner[i] === null) owner[i] = c;
+      matchOf[c] = i;
+    });
+
+    const result = {};
+    clients.forEach(c => { result[c] = msgs[matchOf[c]].text; });
+    return result;
+  }
+
+  // ---- Buttons ----
+  actionBtn.addEventListener("click", async () => {
+    actionBtn.disabled = true;
+    try {
+      if (phase === "collect") {
+        await setPhase("closed", session || String(Date.now()), sessionStart);
+      } else if (phase === "closed") {
+        const assignments = makeAssignments();
+        await Promise.all(Object.entries(assignments).map(([clientId, text]) =>
+          post(TOPIC + "-c-" + clientId, { type: "assign", session, text })));
+        await setPhase("chain", session, sessionStart);
+      }
+    } catch (err) {
+      actionBtn.textContent = "Fehler – nochmal versuchen";
+      setTimeout(renderPhase, 2000);
+    } finally {
+      actionBtn.disabled = phase === "chain";
+    }
   });
 
-  // Live-Verbindung; since=all lädt auch bereits gesendete Texte der letzten Stunden
-  const source = new EventSource("https://ntfy.sh/" + TOPIC + "/sse?since=all");
-  source.onopen = () => { state.textContent = "● Live"; state.className = "live"; };
-  source.onerror = () => { state.textContent = "Verbindung unterbrochen – verbinde neu …"; state.className = ""; };
-  source.onmessage = (e) => {
+  let confirmNew = false;
+  $("newRound").addEventListener("click", async () => {
+    if (!confirmNew) {
+      confirmNew = true;
+      $("newRound").textContent = "Wirklich? Nochmal klicken";
+      setTimeout(() => { confirmNew = false; $("newRound").textContent = "Neue Runde"; }, 3000);
+      return;
+    }
+    confirmNew = false;
+    $("newRound").textContent = "Neue Runde";
+    try {
+      await setPhase("collect", String(Date.now()), Math.floor(Date.now() / 1000));
+    } catch (err) {
+      $("newRound").textContent = "Fehler – nochmal";
+      setTimeout(() => ($("newRound").textContent = "Neue Runde"), 2000);
+    }
+  });
+
+  // ---- Live-Verbindungen ----
+  const ctrl = new EventSource(NTFY + TOPIC + "-ctrl/sse?since=all");
+  ctrl.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.event === "message") addEntry(msg);
+      if (msg.event !== "message") return;
+      const data = JSON.parse(msg.message);
+      if (data.phase) applyCtrl(data);
     } catch (err) {}
   };
 
-  document.getElementById("clear").addEventListener("click", () => {
-    clearedAt = Math.floor(Date.now() / 1000);
-    try { localStorage.setItem(CLEAR_KEY, String(clearedAt)); } catch (e) {}
-    list.innerHTML = "";
-    counter = 0;
-    updateCount();
-  });
+  const main = new EventSource(NTFY + TOPIC + "/sse?since=all");
+  main.onopen = () => { state.textContent = "● Live"; state.className = "live"; };
+  main.onerror = () => { state.textContent = "Verbindung unterbrochen – verbinde neu …"; state.className = ""; };
+  main.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.event !== "message" || rawIds.has(msg.id)) return;
+      rawIds.add(msg.id);
+      raw.push(msg);
+      consider(msg);
+    } catch (err) {}
+  };
 
-  updateCount();
+  renderPhase();
+  updateCounts();
 </script>
 </body>
 </html>
