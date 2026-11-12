@@ -130,6 +130,13 @@
   </section>
 
   <!-- Wartebildschirme -->
+  <section class="view" id="v-lobby">
+    <div class="center">
+      <h1>Gleich geht es los</h1>
+      <p>Die Session hat noch nicht begonnen.</p>
+    </div>
+  </section>
+
   <section class="view" id="v-closed">
     <div class="center">
       <h1>Arbeitsphase beendet</h1>
@@ -180,10 +187,10 @@
   };
 
   // ---- Zustand ----
-  // Phasen: collect, closed, chain, chainClosed, synopsis, synopsisClosed,
+  // Phasen: lobby, collect, closed, chain, chainClosed, synopsis, synopsisClosed,
   //         feature, featureClosed, final, finished
   const WORK = ["chain", "synopsis", "feature", "final"];
-  let phase = "collect";
+  let phase = "lobby";
   let session = null;
   const assignments = {};  // "stage|session" -> Zuteilung vom Host
   const built = {};        // stage -> session, für die die Ansicht gefüllt wurde
@@ -196,6 +203,7 @@
   }
 
   function render() {
+    if (phase === "lobby") return show("v-lobby");
     if (phase === "collect") return show(store.get(sentKey("text")) ? "v-done" : "v-collect");
     if (phase === "finished") return show("v-end");
     if (WORK.includes(phase)) {
