@@ -26,6 +26,8 @@
   h2 { font-size: 1.3rem; margin: 26px 24px 0; }
   .hint { margin: 6px 24px 0; color: rgba(255,255,255,.8); }
   #state { font-size: .9rem; color: rgba(255,255,255,.75); }
+  #timer { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 4.5ch; text-align: right; }
+  #timer.stopped { color: var(--orange); }
   #state.live { color: #9fe8b0; }
   #state.live::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #9fe8b0; margin-right: 6px; }
   button {
@@ -76,6 +78,7 @@
 <header>
   <h1><span id="countLabel">Eingänge:</span> <span id="count">0</span></h1>
   <span id="state">Verbinde …</span>
+  <span id="timer" class="stopped">00:00</span>
   <button id="restart" type="button">Neu starten</button>
   <button id="action" class="primary" type="button">Aufdecken</button>
 </header>
@@ -310,10 +313,34 @@
     phase = data.phase;
     session = data.session;
     sessionStart = data.start || 0;
+    updateTimer(data);
     renderPhase();
     if (changed) rebuild();
     else updateCounts();
   }
+
+  // ---- Timer: läuft in jeder Arbeitsrunde, stoppt beim Aufdecken ----
+  let timerKey = null, timerStart = null, timerStop = null;
+
+  function updateTimer(data) {
+    const at = data.at || Date.now();
+    if (COVERED[data.phase]) {
+      const key = data.session + "|" + data.phase;
+      if (key !== timerKey) { timerKey = key; timerStart = at; timerStop = null; }
+    } else if (timerStart !== null && timerStop === null) {
+      timerStop = at;
+    }
+    renderTimer();
+  }
+
+  function renderTimer() {
+    const t = $("timer");
+    if (timerStart === null) { t.textContent = "00:00"; t.classList.add("stopped"); return; }
+    const sec = Math.max(0, Math.floor(((timerStop !== null ? timerStop : Date.now()) - timerStart) / 1000));
+    t.textContent = String(Math.floor(sec / 60)).padStart(2, "0") + ":" + String(sec % 60).padStart(2, "0");
+    t.classList.toggle("stopped", timerStop !== null);
+  }
+  setInterval(renderTimer, 500);
 
   // ---- Senden ----
   async function post(topic, obj) {
@@ -322,7 +349,7 @@
   }
 
   async function setPhase(newPhase) {
-    const data = { phase: newPhase, session, start: sessionStart };
+    const data = { phase: newPhase, session, start: sessionStart, at: Date.now() };
     await post(TOPIC + "-ctrl", data);
     applyCtrl(data);
   }
@@ -469,7 +496,7 @@
     confirmRestart = false;
     $("restart").textContent = "Neu starten";
     try {
-      const data = { phase: "collect", session: String(Date.now()), start: Math.floor(Date.now() / 1000) };
+      const data = { phase: "collect", session: String(Date.now()), start: Math.floor(Date.now() / 1000), at: Date.now() };
       await post(TOPIC + "-ctrl", data);
       applyCtrl(data);
     } catch (err) {
